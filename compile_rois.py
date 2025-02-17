@@ -4,9 +4,12 @@ import pandas as pd
 import ntpath
 import os
 import glob
+import numpy as np
 import contextlib as cl
 import re
 from collections import defaultdict
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 """
 Example DataFrame structure:
@@ -44,19 +47,21 @@ def get_min_slices(file_paths):
     file_with_min_unique = None
     imageno_range = None
     for file_path in file_paths:
-        # Read the 'imageno' column (assuming it's the first column)
-        df = pd.read_csv(file_path, usecols=[0])
-        
-        # Get unique image numbers
-        unique_imagenos = df.iloc[:, 0].unique()
-        unique_count = len(unique_imagenos)
-        
-        # Check if this file has the fewest unique image numbers
-        if unique_count < min_unique_count:
-            min_unique_count = unique_count
-            file_with_min_unique = file_path
-            # Extract the min and max imageno values
-            imageno_range = (df.iloc[:, 0].min(), df.iloc[:, 0].max())
+        try:        # Read the 'imageno' column (assuming it's the first column)
+            df = pd.read_csv(file_path, usecols=[0], skiprows=1)
+            # Get unique image numbers
+            unique_imagenos = df.iloc[:, 0].unique()
+            unique_count = len(unique_imagenos)
+
+            # Check if this file has the fewest unique image numbers
+            if unique_count < min_unique_count:
+                min_unique_count = unique_count
+                file_with_min_unique = file_path
+                # Extract the min and max imageno values
+                imageno_range = (df.iloc[:, 0].min(), df.iloc[:, 0].max())
+        except Exception as e:
+            print(f"Error processing {file_path}: {str(e)}")
+            continue
     return imageno_range
 
 for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
@@ -75,21 +80,26 @@ for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
                 # Convert 'RoiNo' to integers and 'Area' to float, then scale 'Area' by 100
                 df['RoiNo'] = df['RoiNo'].astype(int)
                 df['Area'] = df['Area'].astype(float) * 100
-                
+                even_roi = (df['RoiNo'] % 2 == 0) & (df['RoiNo'] >= 0)
+                odd_roi = (df['RoiNo'] % 2 == 1) & (df['RoiNo'] >= 0)
+                print(even_roi)
+                arterial = df[even_roi]['Area'].tolist() or [np.nan]
+                luminal = df[odd_roi]['Area'].tolist() or [np.nan]
+                plaque_area = []
+
                 base_name = os.path.basename(file.name).replace(".csv", "")
                 prefix = '_'.join(base_name.split('_')[:-1])  # Handles multi-part prefixes
                 if prefix not in COLUMN_MAP:
                     continue  # Skip unknown file types
                 art_col, lum_col, plaque_col = COLUMN_MAP[prefix]
-                
-                # Separate luminal and arterial areas using boolean indexing
-                luminal = df[df['RoiNo'] % 2 == 1]['Area'].tolist()  # Odd indices (1, 3, 5, ...)
-                arterial = df[df['RoiNo'] % 2 == 0]['Area'].tolist()  # Even indices (0, 2, 4, ...)
-                plaque_area = [x - y for x, y in zip(arterial, luminal)]
-                
-
+                for a, l in zip(arterial, luminal):
+                    try:
+                        plaque_area.append(a - l)
+                    except TypeError:
+                        plaque_area.append(np.nan)   
+                print(arterial)             
                 slice_numbers = list(range(slice_range[0], slice_range[1] + 1))
-                slice_names = [f"{name}_S{i}" for i in slice_numbers]                
+                slice_names = [f"{name}_S{i}" for i in slice_numbers] 
                 file_df = pd.DataFrame({
                 "SLICE_ID": slice_names,
                 "SLICE_NR": slice_numbers,
@@ -100,8 +110,8 @@ for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
                 spss_dataframe = pd.concat([spss_dataframe, file_df], ignore_index=True)
 
                 # Append the new row to the SPSS dataframe
-                
-print(spss_dataframe)
+merged_df = spss_dataframe.groupby(['SLICE_ID'], as_index=False).max()                
+print(merged_df)
                 
 # transforming data
 # transform the dataframe df to containing columns referenced in the name of the csv file
