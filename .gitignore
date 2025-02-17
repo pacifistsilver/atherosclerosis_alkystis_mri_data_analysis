@@ -174,3 +174,4 @@ cython_debug/
 
 data/
 cleaned_data/
+test_data/
