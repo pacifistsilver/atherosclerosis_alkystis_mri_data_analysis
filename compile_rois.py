@@ -19,11 +19,22 @@ s2
 DIR_DATA_TEST_PATH= os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
 DIR_DATA_PATH = os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main\data")
 COLUMN_NAMES = [
-    "SLICE_NR", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
+    "SLICE_ID", "SLICE_NR", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
     "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE", "OUTCOME"
 ]
-DIR_OUT = os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main", "cleaned_data")  # Replace with the path to your output folder
-COLUMN_TARGET = 'NumOfPoints'  # Replace with the target column name
+DIR_OUT = os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main", "cleaned_data")  
+COLUMN_TARGET = 'NumOfPoints'
+COLUMN_MAP = {
+    'T1BB': ('T1BB_ARTERIAL', 'T1BB_LUMINAL', 'T1BB_PLAQUE'),
+    'T1BB_CE': ('T1BB_CE_ARTERIAL', 'T1BB_CE_LUMINAL', 'T1BB_CE_PLAQUE'),
+    'IR_CE': ('IR_CE_ARTERIAL', 'IR_CE_LUMINAL', 'IR_CE_PLAQUE')
+}
+temp_df = pd.DataFrame(columns=[
+    "SLICE_NR", 
+    "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE",
+    "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
+    "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE"
+])
 spss_dataframe = pd.DataFrame(columns=COLUMN_NAMES)
 
 # given a list of three files, extract the imageno range of the file of the file with lowest number of image numbers
@@ -65,10 +76,32 @@ for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
                 df['RoiNo'] = df['RoiNo'].astype(int)
                 df['Area'] = df['Area'].astype(float) * 100
                 
+                base_name = os.path.basename(file.name).replace(".csv", "")
+                prefix = '_'.join(base_name.split('_')[:-1])  # Handles multi-part prefixes
+                if prefix not in COLUMN_MAP:
+                    continue  # Skip unknown file types
+                art_col, lum_col, plaque_col = COLUMN_MAP[prefix]
+                
                 # Separate luminal and arterial areas using boolean indexing
                 luminal = df[df['RoiNo'] % 2 == 1]['Area'].tolist()  # Odd indices (1, 3, 5, ...)
                 arterial = df[df['RoiNo'] % 2 == 0]['Area'].tolist()  # Even indices (0, 2, 4, ...)
                 plaque_area = [x - y for x, y in zip(arterial, luminal)]
+                
+
+                slice_numbers = list(range(slice_range[0], slice_range[1] + 1))
+                slice_names = [f"{name}_S{i}" for i in slice_numbers]                
+                file_df = pd.DataFrame({
+                "SLICE_ID": slice_names,
+                "SLICE_NR": slice_numbers,
+                art_col: arterial,
+                lum_col: luminal,
+                plaque_col: plaque_area}).reset_index(drop=True)
+                
+                spss_dataframe = pd.concat([spss_dataframe, file_df], ignore_index=True)
+
+                # Append the new row to the SPSS dataframe
+                
+print(spss_dataframe)
                 
 # transforming data
 # transform the dataframe df to containing columns referenced in the name of the csv file
