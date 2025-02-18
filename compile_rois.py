@@ -16,7 +16,7 @@ s2
 ...
 """
 DIR_DATA_TEST_PATH= os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
-DIR_DATA_PATH = os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main\data")
+DIR_DATA_PATH = os.path.join("c:\\","Users\danie\Desktop\\atherosclerosis_alkystis_mri_data_analysis-main\cleaned_data")
 COLUMN_NAMES = [
     "SLICE_ID", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
     "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE", "OUTCOME"
@@ -55,14 +55,13 @@ def get_min_slices(file_paths):
                 file_with_min_unique = file_path
                 # Extract the min and max imageno values
                 imageno_range = (df.iloc[:, 0].min(), df.iloc[:, 0].max())
-                print("its giving", imageno_range, file_with_min_unique)
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}")
             continue
     return imageno_range
 
 
-for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
+for root, dirs, files in os.walk(DIR_DATA_PATH):
     sample_names = list(set(file_name.replace(".csv", "").split("_")[-1] for file_name in files))
     for name in sample_names:
         matching_files = [file_name for file_name in files if name in file_name]
@@ -105,10 +104,9 @@ for root, dirs, files in os.walk(DIR_DATA_TEST_PATH):
                 padded_data = list(zip_longest(slice_names, arterial, luminal, plaque_area, fillvalue=np.nan))
                 file_df = pd.DataFrame(padded_data, columns=["SLICE_ID", art_col, lum_col, plaque_col])
                 spss_dataframe = pd.concat([spss_dataframe, file_df], ignore_index=True)
-        spss_dataframe = spss_dataframe.sort_values(by='SLICE_ID', 
+            spss_dataframe = spss_dataframe.groupby('SLICE_ID').first().reset_index()
+            spss_dataframe = spss_dataframe.sort_values(by='SLICE_ID', 
                                    key=lambda x: np.argsort(ns.index_natsorted(spss_dataframe["SLICE_ID"], alg=ns.NA)))
-        spss_dataframe = spss_dataframe.groupby('SLICE_ID').first().reset_index()
-        spss_dataframe = spss_dataframe.loc("SLICE_ID":).astype(int)
 spss_dataframe.to_csv('out.csv', index=False)  
 
                 
