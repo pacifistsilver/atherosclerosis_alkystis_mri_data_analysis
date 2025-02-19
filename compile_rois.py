@@ -89,16 +89,20 @@ def convert_to_spss_dataframe(root, files, sample_names):
             
             for file in file_handles:
                 df = pd.read_csv(file, usecols=["ImageNo", "RoiNo", "Area"])
+                df.to_csv(os.path.join(DIR_OUT, 'out.csv'), index=False)
                 df = df.astype({"ImageNo": int, "RoiNo": int, "Area": float})
                 df['Area'] *= 100
                 df = df[(df["ImageNo"] >= slice_range[0]) & (df["ImageNo"] <= slice_range[1])]
-                # even roi = arterial, odd roi = luminal
-                even_roi = (df['RoiNo'] % 2 == 0) & (df['RoiNo'] >= 0)
-                odd_roi = (df['RoiNo'] % 2 == 1) & (df['RoiNo'] >= 0)
-                
+                # luminal roi will always be smaller than arterial roi
+                df['shift_comparison'] = df["Area"].shift(-1)  
+                df['luminal_roi'] = df['Area'] < df['shift_comparison'] 
+                arterial_rois = df[df['luminal_roi'] == False]['Area']
+                luminal_rois = df[df['luminal_roi'] == True]['Area']
                 # area data
-                arterial = df[even_roi]['Area'].tolist() or [np.nan]
-                luminal = df[odd_roi]['Area'].tolist() or [np.nan]
+                # last one doesnt work rn
+                arterial = arterial_rois.tolist() or [np.nan]
+                luminal = luminal_rois.tolist() or [np.nan]
+
                 plaque_area = [a - l if None not in (a, l) else np.nan for a, l in zip(arterial, luminal)]
                 
                 base_name = os.path.basename(file.name).replace(".csv", "")
@@ -115,7 +119,7 @@ def convert_to_spss_dataframe(root, files, sample_names):
     return spss_dataframe
 
 def main():
-    for root, dirs, files in os.walk(DIR_DATA_PATH):
+    for root, dirs, files in os.walk(DIR_OUT):
         sample_names = list(set(file_name.replace(".csv", "").split("_")[-1] for file_name in files))
         spss_dataframe = convert_to_spss_dataframe(root, files, sample_names)
         spss_dataframe = spss_dataframe.groupby('SLICE_ID').first().reset_index()
