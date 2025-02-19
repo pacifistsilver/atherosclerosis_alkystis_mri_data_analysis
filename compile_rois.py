@@ -1,20 +1,20 @@
 import pandas as pd
 import os
+import csv
 import numpy as np
 import contextlib as cl
 import warnings
 import natsort as ns
+import glob
 from itertools import zip_longest
 import logging
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Constants
-DIR_DATA_TEST_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
-DIR_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "cleaned_data")
-DIR_OUT = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "cleaned_data")
+DIR_DATA_TEST_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "test_data")
+DIR_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "data")
+DIR_OUT = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "cleaned_data")
 COLUMN_NAMES = [
     "SLICE_ID", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
     "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE", "OUTCOME"
@@ -27,7 +27,6 @@ COLUMN_MAP = {
 }
 
 def get_min_slices(file_paths):
-    """Determine the file with the minimum number of unique image numbers and return its range."""
     min_unique_count = float('inf')
     file_with_min_unique = None
     imageno_range = None
@@ -45,8 +44,41 @@ def get_min_slices(file_paths):
             continue
     return imageno_range
 
-def process_files(root, files, sample_names):
-    """Process each file to extract and compile data into a DataFrame."""
+def segment_csv(input_folder, output_folder, target_column):
+    def delete_columns_after(input_file, output_file, target_column):
+        with open(input_file, mode='r', newline='') as infile, open(output_file, mode='w', newline='') as outfile:
+            reader = csv.reader(infile)
+            writer = csv.writer(outfile)
+            header = next(reader)
+            
+            try:
+                target_index = header.index(target_column)
+            except ValueError:
+                print(f"Column '{target_column}' not found in {input_file}. Skipping this file.")
+                return
+            
+            writer.writerow(header[:target_index + 1])
+            
+            for row in reader:
+                writer.writerow(row[:target_index + 1])
+
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    csv_files = glob.glob(os.path.join(input_folder, '*.csv'))
+    
+    for csv_file in csv_files:
+        # Define the output file path
+        output_file = os.path.join(output_folder, os.path.basename(csv_file))
+        
+        print(f"Processing {csv_file}...")
+        delete_columns_after(csv_file, output_file, target_column)
+        print(f"Saved cleaned file to {output_file}.")
+
+
+segment_csv(DIR_DATA_PATH, DIR_OUT, COLUMN_TARGET)
+
+def convert_to_spss_dataframe(root, files, sample_names):
     spss_dataframe = pd.DataFrame(columns=COLUMN_NAMES)
     for name in sample_names:
         matching_files = [file_name for file_name in files if name in file_name]
@@ -83,10 +115,9 @@ def process_files(root, files, sample_names):
     return spss_dataframe
 
 def main():
-    """Main function to orchestrate the data processing."""
     for root, dirs, files in os.walk(DIR_DATA_PATH):
         sample_names = list(set(file_name.replace(".csv", "").split("_")[-1] for file_name in files))
-        spss_dataframe = process_files(root, files, sample_names)
+        spss_dataframe = convert_to_spss_dataframe(root, files, sample_names)
         spss_dataframe = spss_dataframe.groupby('SLICE_ID').first().reset_index()
         spss_dataframe = spss_dataframe.sort_values(by='SLICE_ID', key=lambda x: np.argsort(ns.index_natsorted(spss_dataframe["SLICE_ID"], alg=ns.NA)))
         spss_dataframe.to_csv(os.path.join(DIR_OUT, 'out.csv'), index=False)
