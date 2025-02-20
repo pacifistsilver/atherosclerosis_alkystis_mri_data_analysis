@@ -67,7 +67,6 @@ def convert_to_spss_dataframe(root, files, sample_names):
         with cl.ExitStack() as stack:
             
             file_handles = [stack.enter_context(open(os.path.join(root, fname), "r")) for fname in matching_files]
-            slice_range = get_min_slices([os.path.abspath(file.name) for file in file_handles])
             
             for file in file_handles:
                 df = pd.read_csv(file, usecols=["ImageNo", "RoiNo", "Area"])
