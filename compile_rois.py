@@ -12,9 +12,9 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-DIR_DATA_TEST_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "test_data")
-DIR_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "data")
-DIR_OUT = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis", "cleaned_data")
+DIR_DATA_TEST_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
+DIR_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data")
+DIR_OUT = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data", "cleaned_data")
 COLUMN_NAMES = [
     "SLICE_ID", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
     "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE", "OUTCOME"
@@ -25,24 +25,6 @@ COLUMN_MAP = {
     'T1BB_CE': ('T1BB_CE_ARTERIAL', 'T1BB_CE_LUMINAL', 'T1BB_CE_PLAQUE'),
     'IR_CE': ('IR_CE_ARTERIAL', 'IR_CE_LUMINAL', 'IR_CE_PLAQUE')
 }
-
-def get_min_slices(file_paths):
-    min_unique_count = float('inf')
-    file_with_min_unique = None
-    imageno_range = None
-    for file_path in file_paths:
-        try:
-            df = pd.read_csv(file_path, usecols=[0], skiprows=1)
-            unique_imagenos = df.iloc[:, 0].unique()
-            unique_count = len(unique_imagenos)
-            if unique_count < min_unique_count:
-                min_unique_count = unique_count
-                file_with_min_unique = file_path
-                imageno_range = (df.iloc[:, 0].min(), df.iloc[:, 0].max())
-        except Exception as e:
-            logging.error(f"Error processing {file_path}: {str(e)}")
-            continue
-    return imageno_range
 
 def segment_csv(input_folder, output_folder, target_column):
     def delete_columns_after(input_file, output_file, target_column):
@@ -76,7 +58,7 @@ def segment_csv(input_folder, output_folder, target_column):
         print(f"Saved cleaned file to {output_file}.")
 
 
-segment_csv(DIR_DATA_PATH, DIR_OUT, COLUMN_TARGET)
+segment_csv(DIR_DATA_TEST_PATH, DIR_OUT, COLUMN_TARGET)
 
 def convert_to_spss_dataframe(root, files, sample_names):
     spss_dataframe = pd.DataFrame(columns=COLUMN_NAMES)
@@ -89,32 +71,44 @@ def convert_to_spss_dataframe(root, files, sample_names):
             
             for file in file_handles:
                 df = pd.read_csv(file, usecols=["ImageNo", "RoiNo", "Area"])
-                df.to_csv(os.path.join(DIR_OUT, 'out.csv'), index=False)
-                df = df.astype({"ImageNo": int, "RoiNo": int, "Area": float})
-                df['Area'] *= 100
-                df = df[(df["ImageNo"] >= slice_range[0]) & (df["ImageNo"] <= slice_range[1])]
-                # luminal roi will always be smaller than arterial roi
-                df['shift_comparison'] = df["Area"].shift(-1)  
-                df['luminal_roi'] = df['Area'] < df['shift_comparison'] 
-                arterial_rois = df[df['luminal_roi'] == False]['Area']
-                luminal_rois = df[df['luminal_roi'] == True]['Area']
-                # area data
-                # last one doesnt work rn
-                arterial = arterial_rois.tolist() or [np.nan]
-                luminal = luminal_rois.tolist() or [np.nan]
+                roino_counts = df.groupby('ImageNo')['RoiNo'].nunique()
+                if (roino_counts == 1).any() == True: 
+                    single_roino_imagenos = roino_counts[roino_counts == 1].index.tolist()
+                    # Log error message if any ImageNo has only one RoiNo
+                    if single_roino_imagenos:
+                        for imagen_no in single_roino_imagenos:
+                            logging.error(f"ImageNo {imagen_no} in {os.path.abspath(file.name)} has only one RoiNo.")
+                    break
+                else: 
+                    logging.info(f"file check for {file} ok")
+                    df = df.astype({"ImageNo": int, "RoiNo": int, "Area": float})
+                    df['Area'] *= 100
+                    # luminal roi will always be smaller than arterial roi
+                    df['shift_comparison'] = df.groupby('ImageNo')['Area'].shift(1)
+                    df['shift_comparison'] = df.groupby('ImageNo')['Area'].shift(-1).fillna(df['shift_comparison'])                
 
-                plaque_area = [a - l if None not in (a, l) else np.nan for a, l in zip(arterial, luminal)]
-                
-                base_name = os.path.basename(file.name).replace(".csv", "")
-                prefix = '_'.join(base_name.split('_')[:-1])
-                
-                if prefix in COLUMN_MAP:
-                    # map file prefix to column names
-                    art_col, lum_col, plaque_col = COLUMN_MAP[prefix]
-                    slice_names = [f"{name}_S{i}" for i in df['ImageNo'].unique()]
-                    padded_data = list(zip_longest(slice_names, arterial, luminal, plaque_area, fillvalue=np.nan))
-                    file_df = pd.DataFrame(padded_data, columns=["SLICE_ID", art_col, lum_col, plaque_col])
-                    spss_dataframe = pd.concat([spss_dataframe, file_df], ignore_index=True)
+                    df['luminal_roi'] = (df['Area'] < df['shift_comparison']) & (~df['shift_comparison'].isna())          
+                    df['arterial_roi'] = (df['Area'] > df['shift_comparison']) & (~df['shift_comparison'].isna())            
+    
+                    arterial_rois = df[df['arterial_roi'] == True]['Area']
+                    luminal_rois = df[df['luminal_roi'] == True]['Area'] 
+                    #df = df.drop(df[df['RoiNo'] == 1].index)
+                    # area data
+                    # last one doesnt work rn
+                    arterial = arterial_rois.tolist() or [np.nan]
+                    luminal = luminal_rois.tolist() or [np.nan]
+                    plaque_area = [a - l if None not in (a, l) else np.nan for a, l in zip(arterial, luminal)]
+                    
+                    base_name = os.path.basename(file.name).replace(".csv", "")
+                    prefix = '_'.join(base_name.split('_')[:-1])
+                    
+                    if prefix in COLUMN_MAP:
+                        # map file prefix to column names
+                        art_col, lum_col, plaque_col = COLUMN_MAP[prefix]
+                        slice_names = [f"{name}_S{i}" for i in df['ImageNo'].unique()]
+                        padded_data = list(zip_longest(slice_names, arterial, luminal, plaque_area, fillvalue=np.nan))
+                        file_df = pd.DataFrame(padded_data, columns=["SLICE_ID", art_col, lum_col, plaque_col])
+                        spss_dataframe = pd.concat([spss_dataframe, file_df], ignore_index=True)
                     
     return spss_dataframe
 
