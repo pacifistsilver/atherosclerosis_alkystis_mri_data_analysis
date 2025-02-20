@@ -6,7 +6,8 @@ WORKDIR /app
 
 # Copy the requirements file into the container
 COPY requirements.txt .
-
+COPY compile_rois.py .
+COPY config.yml .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -14,8 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set environment variables (if needed)
-ENV DIR_DATA_PATH=/app/data
-ENV DIR_OUT=/app/output
+ENV DATA_PATH=/app/rabbit_roi_data
+ENV OUTPUT_PATH=/app/output
+ENV PYTHONUNBUFFERED=1
 
 # Create directories for data and output
 RUN mkdir -p /app/data /app/output
