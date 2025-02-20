@@ -1,20 +1,16 @@
-import pandas as pd
-import os
-import csv
+import os, shutil, csv, glob, logging
 import numpy as np
 import contextlib as cl
-import warnings
 import natsort as ns
-import glob
+import pandas as pd
+import warnings ; warnings.warn = lambda *args,**kwargs: None
 from itertools import zip_longest
-import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-DIR_DATA_TEST_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
-DIR_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data")
-DIR_OUT = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data", "cleaned_data")
+TESTING_DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "atherosclerosis_alkystis_mri_data_analysis-main", "test_data")
+DATA_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data")
+OUTPUT_PATH = os.path.join("c:\\", "Users", "danie", "Desktop", "rabbit_roi_data", "cleaned_data")
 COLUMN_NAMES = [
     "SLICE_ID", "T1BB_ARTERIAL", "T1BB_LUMINAL", "T1BB_PLAQUE", "T1BB_CE_ARTERIAL", "T1BB_CE_LUMINAL", "T1BB_CE_PLAQUE",
     "IR_CE_ARTERIAL", "IR_CE_LUMINAL", "IR_CE_PLAQUE", "OUTCOME"
@@ -25,40 +21,45 @@ COLUMN_MAP = {
     'T1BB_CE': ('T1BB_CE_ARTERIAL', 'T1BB_CE_LUMINAL', 'T1BB_CE_PLAQUE'),
     'IR_CE': ('IR_CE_ARTERIAL', 'IR_CE_LUMINAL', 'IR_CE_PLAQUE')
 }
+def clean_output_path(output_folder):
+    if os.path.exists(output_folder):
+        shutil.rmtree(output_folder)
+        logging.debug(f"Deleted existing folder: {output_folder}")
+    os.makedirs(output_folder)
+    logging.debug(f"Created new folder: {output_folder}")
 
 def segment_csv(input_folder, output_folder, target_column):
     def delete_columns_after(input_file, output_file, target_column):
         with open(input_file, mode='r', newline='') as infile, open(output_file, mode='w', newline='') as outfile:
             reader = csv.reader(infile)
             writer = csv.writer(outfile)
-            header = next(reader)
+            try:
+                # Read the header row
+                header = next(reader)
+            except StopIteration:
+                # Handle empty file
+                logging.warning(f"File '{input_file}' is empty. Skipping this file.")
+                return
             
             try:
                 target_index = header.index(target_column)
+                writer.writerow(header[:target_index + 1])
+                
+                for row in reader:
+                    writer.writerow(row[:target_index + 1])
             except ValueError:
-                print(f"Column '{target_column}' not found in {input_file}. Skipping this file.")
+                logging.warning(f"Column '{target_column}' not found in {input_file}. Skipping this file.")
                 return
             
-            writer.writerow(header[:target_index + 1])
-            
-            for row in reader:
-                writer.writerow(row[:target_index + 1])
-
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+    clean_output_path(output_folder)
     
     csv_files = glob.glob(os.path.join(input_folder, '*.csv'))
     
     for csv_file in csv_files:
-        # Define the output file path
         output_file = os.path.join(output_folder, os.path.basename(csv_file))
         
-        print(f"Processing {csv_file}...")
+        logging.info(f"Processing {csv_file}...")
         delete_columns_after(csv_file, output_file, target_column)
-        print(f"Saved cleaned file to {output_file}.")
-
-
-segment_csv(DIR_DATA_TEST_PATH, DIR_OUT, COLUMN_TARGET)
 
 def convert_to_spss_dataframe(root, files, sample_names):
     spss_dataframe = pd.DataFrame(columns=COLUMN_NAMES)
@@ -79,7 +80,7 @@ def convert_to_spss_dataframe(root, files, sample_names):
                             logging.error(f"ImageNo {imagen_no} in {os.path.abspath(file.name)} has only one RoiNo.")
                     break
                 else: 
-                    logging.info(f"file check for {file} ok")
+                    logging.info(f"file check for {os.path.abspath(file.name)} OK")
                     df = df.astype({"ImageNo": int, "RoiNo": int, "Area": float})
                     df['Area'] *= 100
                     # luminal roi will always be smaller than arterial roi
@@ -112,12 +113,13 @@ def convert_to_spss_dataframe(root, files, sample_names):
     return spss_dataframe
 
 def main():
-    for root, dirs, files in os.walk(DIR_OUT):
+    segment_csv(DATA_PATH, OUTPUT_PATH, COLUMN_TARGET)
+    for root, dirs, files in os.walk(OUTPUT_PATH):
         sample_names = list(set(file_name.replace(".csv", "").split("_")[-1] for file_name in files))
         spss_dataframe = convert_to_spss_dataframe(root, files, sample_names)
         spss_dataframe = spss_dataframe.groupby('SLICE_ID').first().reset_index()
         spss_dataframe = spss_dataframe.sort_values(by='SLICE_ID', key=lambda x: np.argsort(ns.index_natsorted(spss_dataframe["SLICE_ID"], alg=ns.NA)))
-        spss_dataframe.to_csv(os.path.join(DIR_OUT, 'out.csv'), index=False)
+        spss_dataframe.to_csv(os.path.join(OUTPUT_PATH, 'out.csv'), index=False)
         logging.info("Data processing complete and output saved to out.csv")
 
 if __name__ == "__main__":
